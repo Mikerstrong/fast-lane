@@ -344,6 +344,71 @@ st.sidebar.header("Stock Analysis Parameters")
 # Stock symbol input
 symbol = st.sidebar.text_input("Enter Stock Symbol (e.g., AAPL, TSLA, MSFT):", value="ASTS").upper()
 
+# Possible Stocks section
+st.sidebar.markdown("---")
+st.sidebar.markdown("**Possible Stocks:**")
+
+# Initialize session state for possible stocks
+if "possible_stocks" not in st.session_state:
+    st.session_state["possible_stocks"] = []
+
+if "show_add_possible_stocks" not in st.session_state:
+    st.session_state["show_add_possible_stocks"] = False
+
+# Plus button to add possible stocks
+col1, col2 = st.sidebar.columns([1, 4])
+with col1:
+    if st.button("➕", help="Add possible stocks", key="add_possible_stocks_btn"):
+        st.session_state["show_add_possible_stocks"] = not st.session_state["show_add_possible_stocks"]
+
+with col2:
+    st.markdown("*Add stocks to consider*")
+
+# Show text area for adding stocks when plus is clicked
+if st.session_state.get("show_add_possible_stocks"):
+    with st.sidebar.expander("Add Possible Stocks", expanded=True):
+        st.markdown("*Paste stock symbols (one per line or comma-separated):*")
+        stocks_input = st.text_area("Stock symbols:", placeholder="AAPL\nGOOG\nMSFT", key="stocks_textarea", height=100)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("💾 Add", key="save_possible_stocks"):
+                if stocks_input.strip():
+                    # Parse the input - handle both newlines and commas
+                    raw_symbols = []
+                    for line in stocks_input.strip().split('\n'):
+                        if ',' in line:
+                            raw_symbols.extend([s.strip() for s in line.split(',')])
+                        else:
+                            raw_symbols.append(line.strip())
+                    
+                    # Clean and validate symbols
+                    new_symbols = []
+                    for sym in raw_symbols:
+                        sym = sym.strip().upper()
+                        if sym and sym.isalpha() and len(sym) <= 5:  # Basic validation
+                            if sym not in st.session_state["possible_stocks"]:
+                                new_symbols.append(sym)
+                    
+                    st.session_state["possible_stocks"].extend(new_symbols)
+                    st.success(f"Added {len(new_symbols)} stocks!")
+                    st.session_state["show_add_possible_stocks"] = False
+                    st.rerun()
+        
+        with col2:
+            if st.button("❌ Cancel", key="cancel_possible_stocks"):
+                st.session_state["show_add_possible_stocks"] = False
+                st.rerun()
+
+# Show current possible stocks if any
+if st.session_state["possible_stocks"]:
+    st.sidebar.markdown(f"*Current: {', '.join(st.session_state['possible_stocks'])}*")
+    
+    # Clear possible stocks button
+    if st.sidebar.button("🗑️ Clear All", help="Clear all possible stocks", key="clear_possible_stocks"):
+        st.session_state["possible_stocks"] = []
+        st.rerun()
+
 # Chart range dropdown (affects historical data used for charts/indicators)
 chart_range_label = st.sidebar.selectbox(
     "Chart Range",
@@ -374,17 +439,33 @@ except Exception:
 
 # Dropdown for most active stocks
 st.sidebar.markdown("**Or select from most active stocks:**")
+
+# Combine active stocks with possible stocks
+dropdown_options = st.session_state['active_stocks_display'].copy()
+dropdown_symbols = st.session_state['active_stocks_symbols'].copy()
+
+# Add possible stocks with ? emoji
+if st.session_state.get("possible_stocks"):
+    for possible_stock in st.session_state["possible_stocks"]:
+        possible_display = f"❓ {possible_stock}"
+        dropdown_options.append(possible_display)
+        dropdown_symbols.append(possible_stock)
+
 selected_active = st.sidebar.selectbox(
     "Top Movers & Active Stocks",
-    options=["Select a stock..."] + st.session_state['active_stocks_display'],
+    options=["Select a stock..."] + dropdown_options,
     key="active_stock_dropdown"
 )
 
 # Update symbol if dropdown selection is made
 if selected_active != "Select a stock..." and selected_active:
-    # Extract symbol from dropdown selection
-    selected_index = st.session_state['active_stocks_display'].index(selected_active)
-    symbol = st.session_state['active_stocks_symbols'][selected_index]
+    if selected_active.startswith("❓ "):
+        # Handle possible stock selection
+        symbol = selected_active.replace("❓ ", "").strip()
+    else:
+        # Handle regular active stock selection
+        selected_index = st.session_state['active_stocks_display'].index(selected_active)
+        symbol = st.session_state['active_stocks_symbols'][selected_index]
 
 # Refresh button for active stocks
 if st.sidebar.button("🔄 Refresh Active Stocks"):
@@ -1248,6 +1329,10 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     
     # Display FAST LANE signal with enhanced criteria
     if is_positive_dpo_20 and is_positive_dpo_9 and price_between_bb1_bb3:
+        st.markdown(
+            f"<h1 style='text-align: center; color: #FFFFFF; font-size: 72px; font-weight: bold; text-shadow: 3px 3px 6px #000000; margin-bottom: 10px;'>{current_symbol}</h1>", 
+            unsafe_allow_html=True
+        )
         st.markdown(
             "<h1 style='text-align: center; color: #00FF00; font-size: 48px; font-weight: bold; text-shadow: 2px 2px 4px #000000;'>🚀 In the FAST LANE! 🚀</h1>", 
             unsafe_allow_html=True
