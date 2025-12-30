@@ -344,6 +344,14 @@ st.sidebar.header("Stock Analysis Parameters")
 # Stock symbol input
 symbol = st.sidebar.text_input("Enter Stock Symbol (e.g., AAPL, TSLA, MSFT):", value="ASTS").upper()
 
+# Chart range dropdown (affects historical data used for charts/indicators)
+chart_range_label = st.sidebar.selectbox(
+    "Chart Range",
+    options=["2 months (standard)", "6 months", "1 year", "all"],
+    index=0,
+    key="chart_range",
+)
+
 # Get most active stocks for dropdown
 if 'active_stocks_display' not in st.session_state or 'active_stocks_symbols' not in st.session_state:
     with st.sidebar:
@@ -568,6 +576,13 @@ st.sidebar.markdown("---")
 if "show_add_stock" not in st.session_state:
     st.session_state["show_add_stock"] = False
 
+if "show_portfolio" not in st.session_state:
+    st.session_state["show_portfolio"] = False
+
+portfolio_clicked = st.sidebar.button("📊 My Portfolio", help="View detailed portfolio P/L", key="portfolio_button")
+if portfolio_clicked:
+    st.session_state["show_portfolio"] = True
+
 add_clicked = st.sidebar.button("➕ Add Stock", help="Add a holding to mystocks.json")
 if add_clicked:
     st.session_state["show_add_stock"] = True
@@ -737,9 +752,151 @@ if holdings_for_pl:
         st.metric("Total Value (live)", f"${total_value:,.2f}")
         st.metric("Total P/L", f"${total_pnl:,.2f}", delta=f"{total_pnl_pct:+.2f}%")
 
-# Date range
+# Show detailed portfolio view when My Portfolio button is clicked
+if st.session_state.get("show_portfolio"):
+    with st.expander("📊 My Portfolio - Detailed View", expanded=True):
+        st.markdown("### Portfolio Holdings & Performance")
+        
+        # Refresh button for live data
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("🔄 Refresh Live", help="Update all live prices"):
+                # Clear the live price cache to force fresh data
+                if "portfolio_live_prices" in st.session_state:
+                    del st.session_state["portfolio_live_prices"]
+                st.rerun()
+        
+        with col2:
+            if st.button("❌ Close Portfolio", help="Close detailed portfolio view"):
+                st.session_state["show_portfolio"] = False
+                st.rerun()
+        
+        holdings_detailed = load_mystocks()
+        if holdings_detailed:
+            # Aggregate and calculate detailed P/L
+            agg_detailed = {}
+            for h in holdings_detailed:
+                sym = _normalize_symbol(h.get("stock") if isinstance(h, dict) else None)
+                if not sym:
+                    continue
+                try:
+                    qty = float(h.get("quantity", 0.0))
+                except Exception:
+                    qty = 0.0
+                try:
+                    cost = float(h.get("price", 0.0))
+                except Exception:
+                    cost = 0.0
+
+                if qty <= 0:
+                    continue
+
+                a = agg_detailed.get(sym) or {"quantity": 0, "cost_value": 0.0}
+                a["quantity"] += float(qty)
+                a["cost_value"] += qty * cost
+                agg_detailed[sym] = a
+
+            symbols_detailed = list(agg_detailed.keys())
+            quotes_detailed = get_live_prices(symbols_detailed, ttl_seconds=0)  # Force fresh data
+
+            rows_detailed = []
+            total_cost_detailed = 0.0
+            total_value_detailed = 0.0
+            
+            for sym in symbols_detailed:
+                qty = agg_detailed[sym]["quantity"]
+                cost_value = float(agg_detailed[sym]["cost_value"])
+                avg_cost = (cost_value / qty) if qty else 0.0
+
+                live_price = quotes_detailed.get(sym, {}).get("price")
+                live_ts = quotes_detailed.get(sym, {}).get("ts")
+                live_value = (float(live_price) * qty) if live_price is not None else None
+
+                pnl = (live_value - cost_value) if live_value is not None else None
+                pnl_pct = ((pnl / cost_value) * 100) if (pnl is not None and cost_value > 0) else None
+
+                total_cost_detailed += cost_value
+                if live_value is not None:
+                    total_value_detailed += live_value
+
+                rows_detailed.append(
+                    {
+                        "Stock": sym,
+                        "Quantity": round(float(qty), 6),
+                        "Avg Cost": f"${avg_cost:.4f}",
+                        "Cost Value": f"${cost_value:.2f}",
+                        "Live Price": (f"${float(live_price):.4f}" if live_price is not None else "N/A"),
+                        "Live Value": (f"${float(live_value):.2f}" if live_value is not None else "N/A"),
+                        "P/L $": (f"${float(pnl):.2f}" if pnl is not None else "N/A"),
+                        "P/L %": (f"{float(pnl_pct):+.2f}%" if pnl_pct is not None else "N/A"),
+                        "Updated": live_ts or "N/A",
+                    }
+                )
+
+            # Apply color formatting to P/L columns
+            df_detailed = pd.DataFrame(rows_detailed)
+            
+            def _color_pnl(val):
+                if val == "N/A" or pd.isna(val):
+                    return ""
+                try:
+                    # Extract numeric value from formatted string
+                    if isinstance(val, str):
+                        if val.startswith("$"):
+                            num_val = float(val.replace("$", "").replace(",", ""))
+                        elif val.endswith("%"):
+                            num_val = float(val.replace("%", "").replace("+", ""))
+                        else:
+                            return ""
+                    else:
+                        num_val = float(val)
+                    
+                    if num_val > 0:
+                        return "color: #00FF00; font-weight: bold;"
+                    elif num_val < 0:
+                        return "color: #FF0000; font-weight: bold;"
+                    return ""
+                except:
+                    return ""
+            
+            styled_df = df_detailed.style.map(_color_pnl, subset=["P/L $", "P/L %"])
+            
+            st.dataframe(styled_df, use_container_width=True, hide_index=True)
+            
+            # Portfolio summary
+            st.markdown("### Portfolio Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Total Cost", f"${total_cost_detailed:,.2f}")
+            with col2:
+                st.metric("Total Value", f"${total_value_detailed:,.2f}")
+            with col3:
+                total_pnl_detailed = total_value_detailed - total_cost_detailed
+                st.metric("Total P/L", f"${total_pnl_detailed:,.2f}")
+            with col4:
+                total_pnl_pct_detailed = (total_pnl_detailed / total_cost_detailed * 100) if total_cost_detailed > 0 else 0.0
+                pnl_color = "🟢" if total_pnl_detailed >= 0 else "🔴"
+                st.metric("Total P/L %", f"{pnl_color} {total_pnl_pct_detailed:+.2f}%")
+                
+        else:
+            st.info("No holdings found. Add stocks using the ➕ Add Stock button.")
+
+# Date range (driven by sidebar Chart Range)
 end_date = datetime.datetime.now()
-start_date = end_date - datetime.timedelta(days=365)
+
+# Use generous day counts to ensure full windows (accounts for weekends/holidays)
+# Extra buffer ensures enough trading days for technical indicator calculations
+_range_days_map = {
+    "2 months (standard)": 120,  # ~4 months of calendar days to ensure 2+ months of trading data
+    "6 months": 240,             # ~8 months to ensure 6+ months of trading data
+    "1 year": 450,               # ~15 months to ensure 1+ year of trading data
+    "all": None,
+}
+
+_selected_range = st.session_state.get("chart_range", "2 months (standard)")
+_days = _range_days_map.get(_selected_range, 120)
+start_date = None if _days is None else (end_date - datetime.timedelta(days=int(_days)))
 
 def fetch_intraday_price(symbol: str):
     """Fetch a single best-effort intraday price point.
@@ -772,8 +929,16 @@ def fetch_stock_data(symbol, update_cache=True):
     try:
         ticker = yf.Ticker(symbol)
         
-        # Get historical data for technical indicators (1 year)
-        historical_data = ticker.history(start=start_date, end=end_date)
+        # Get historical data for technical indicators (range selected in sidebar)
+        if start_date is None:
+            historical_data = ticker.history(period="max")
+        else:
+            historical_data = ticker.history(start=start_date, end=end_date)
+
+        try:
+            historical_data.attrs['range_label'] = st.session_state.get("chart_range", "2 months (standard)")
+        except Exception:
+            pass
         
         # Pull live price ONCE when the stock is loaded (Search/selection).
         # Avoid continuous polling to keep server usage low.
@@ -883,6 +1048,20 @@ if search_triggered:
 if 'stock_data' in st.session_state and st.session_state['stock_data'] is not None:
     data = st.session_state['stock_data']
     current_symbol = st.session_state['symbol']
+
+    # If the user changed the chart range, reload the historical window for the current symbol.
+    try:
+        loaded_range = getattr(data, 'attrs', {}).get('range_label')
+    except Exception:
+        loaded_range = None
+    selected_range = st.session_state.get("chart_range", "2 months (standard)")
+    if current_symbol and loaded_range and (loaded_range != selected_range):
+        with st.spinner(f"Updating chart range to {selected_range}..."):
+            refreshed = fetch_stock_data(current_symbol, update_cache=False)
+        if refreshed is not None:
+            st.session_state['stock_data'] = refreshed
+            st.session_state['symbol'] = current_symbol
+            st.rerun()
 
     # If this symbol is in the user's portfolio, show a P/L summary table at the top.
     try:
@@ -1160,11 +1339,11 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         row=1, col=1
     )
     
-    # Add Bollinger Bands (upper region +1σ to +3σ, then 1σ channel)
+    # Add Bollinger Bands with shading from Upper 1σ to Upper 3σ
     # Order matters for Plotly 'fill=tonexty':
     # - BB_Upper_3 (no fill)
     # - BB_Upper_1 (fills to BB_Upper_3 => shades between upper bands)
-    # - BB_Lower_1 (fills to BB_Upper_1 => shades 1σ channel)
+    # - BB_Lower_1 (no fill to upper bands)
     fig.add_trace(
         go.Scatter(
             x=data.index, 
@@ -1185,7 +1364,7 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
             name='BB Upper (1σ)',
             line=dict(color='#FFFF00', width=4),  # Bright yellow
             fill='tonexty',
-            fillcolor='rgba(255,255,0,0.06)',  # Light shading between +1σ and +3σ
+            fillcolor='rgba(255,255,0,0.10)',  # Light shading between +1σ and +3σ
             hovertemplate='<b>Date</b>: %{x}<br><b>Upper BB (1σ)</b>: $%{y:.2f}<extra></extra>',
         ),
         row=1, col=1,
@@ -1198,8 +1377,6 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
             mode='lines', 
             name='BB Lower (1σ)',
             line=dict(color='#FFA500', width=3),  # Bright orange
-            fill='tonexty',
-            fillcolor='rgba(255,255,0,0.10)',  # Light yellow fill
             hovertemplate='<b>Date</b>: %{x}<br><b>Lower BB (1σ)</b>: $%{y:.2f}<extra></extra>'
         ), 
         row=1, col=1
@@ -1263,7 +1440,26 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
             mode='lines', 
             name='DPO (9-day)',
             line=dict(color='#ff6b35', width=3),  # Orange-red for 9-day
+            fill='tozeroy',
+            fillcolor='rgba(76, 175, 80, 0.3)',  # Green fill for positive values
             hovertemplate='<b>Date</b>: %{x}<br><b>DPO-9</b>: %{y:.2f}<extra></extra>'
+        ), 
+        row=2, col=1
+    )
+    
+    # Add separate trace for negative DPO-9 values (red fill below zero)
+    negative_dpo9 = data['DPO_9'].where(data['DPO_9'] <= 0, 0)
+    fig.add_trace(
+        go.Scatter(
+            x=data.index, 
+            y=negative_dpo9, 
+            mode='lines', 
+            name='DPO (9-day) Negative',
+            line=dict(color='#ff6b35', width=0),  # Invisible line
+            fill='tozeroy',
+            fillcolor='rgba(244, 67, 54, 0.3)',  # Red fill for negative values
+            showlegend=False,
+            hoverinfo='skip'
         ), 
         row=2, col=1
     )
@@ -1279,7 +1475,26 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
             mode='lines', 
             name='DPO (20-day)',
             line=dict(color='#2ca02c', width=3),  # Green for 20-day
+            fill='tozeroy',
+            fillcolor='rgba(76, 175, 80, 0.3)',  # Green fill for positive values
             hovertemplate='<b>Date</b>: %{x}<br><b>DPO-20</b>: %{y:.2f}<extra></extra>'
+        ), 
+        row=3, col=1
+    )
+    
+    # Add separate trace for negative DPO-20 values (red fill below zero)
+    negative_dpo20 = data['DPO_20'].where(data['DPO_20'] <= 0, 0)
+    fig.add_trace(
+        go.Scatter(
+            x=data.index, 
+            y=negative_dpo20, 
+            mode='lines', 
+            name='DPO (20-day) Negative',
+            line=dict(color='#2ca02c', width=0),  # Invisible line
+            fill='tozeroy',
+            fillcolor='rgba(244, 67, 54, 0.3)',  # Red fill for negative values
+            showlegend=False,
+            hoverinfo='skip'
         ), 
         row=3, col=1
     )
