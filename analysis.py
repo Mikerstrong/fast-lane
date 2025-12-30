@@ -8,8 +8,14 @@ import json
 import os
 import traceback
 
+DATA_DIR = os.getenv("FASTLANE_DATA_DIR", ".")
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except Exception:
+    DATA_DIR = "."
 
-DEBUG_LOG_FILE = "bulk_debug.log"
+DEBUG_LOG_FILE = os.path.join(DATA_DIR, "bulk_debug.log")
+CACHE_FILE = os.path.join(DATA_DIR, "stock_analysis_cache.json")
 
 
 def fetch_live_price(symbol: str):
@@ -200,10 +206,9 @@ def calculate_dpo_20(df):
 
 def load_cache():
     """Load analysis cache from JSON file"""
-    cache_file = "stock_analysis_cache.json"
     try:
-        if os.path.exists(cache_file):
-            with open(cache_file, 'r') as f:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r') as f:
                 return json.load(f)
     except Exception as e:
         st.sidebar.warning(f"Cache loading error: {e}")
@@ -211,9 +216,8 @@ def load_cache():
 
 def save_cache(cache_data):
     """Save analysis cache to JSON file"""
-    cache_file = "stock_analysis_cache.json"
     try:
-        with open(cache_file, 'w') as f:
+        with open(CACHE_FILE, 'w') as f:
             json.dump(cache_data, f, indent=2, default=str)
     except Exception as e:
         st.sidebar.warning(f"Cache saving error: {e}")

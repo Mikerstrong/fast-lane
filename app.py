@@ -26,11 +26,18 @@ from analysis import (
 # Configure Streamlit page
 st.set_page_config(page_title="Stock Analysis with Bollinger Bands & DPO", layout="wide")
 
-# Cache file path
-CACHE_FILE = "stock_analysis_cache.json"
+# Data directory (useful for Docker volume persistence)
+DATA_DIR = os.getenv("FASTLANE_DATA_DIR", ".")
+try:
+    os.makedirs(DATA_DIR, exist_ok=True)
+except Exception:
+    DATA_DIR = "."
+
+# Cache / persistence file paths
+CACHE_FILE = os.path.join(DATA_DIR, "stock_analysis_cache.json")
 
 # My stocks (simple holdings tracker)
-MYSTOCKS_FILE = "mystocks.json"
+MYSTOCKS_FILE = os.path.join(DATA_DIR, "mystocks.json")
 
 
 def load_mystocks():

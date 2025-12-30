@@ -1,0 +1,12 @@
+.git/
+__pycache__/
+*.py[cod]
+*.log
+venv/
+.venv/
+.vscode/
+
+# Local app data (will be persisted via volume in Docker)
+stock_analysis_cache.json
+mystocks.json
+bulk_debug.log
