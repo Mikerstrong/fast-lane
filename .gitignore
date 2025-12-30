@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Virtual environments
+venv/
+.venv/
+
+# Streamlit
+.streamlit/
+
+# Local app data / caches
+stock_analysis_cache.json
+mystocks.json
+bulk_debug.log
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Logs
+*.log
