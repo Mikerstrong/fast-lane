@@ -17,7 +17,7 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "8501:8501"
+      - "8569:8501"
     environment:
       - FASTLANE_DATA_DIR=/data
     volumes:
