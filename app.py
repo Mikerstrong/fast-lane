@@ -206,16 +206,22 @@ def _get_today_fast_lane_symbols_from_cache(cache: dict) -> set:
 
 
 def _decorate_dropdown_with_fast_lane(display_options: list, symbol_options: list, passing_syms: set) -> list:
-    """Return display strings with 🚀 prefix for passing symbols and removed otherwise."""
+    """Return display strings with 🚀 for passing, 🍋 for not passing.
+
+    Always strips any previous 🚀/🍋 prefix first so the emoji updates cleanly
+    whenever cached results change.
+    """
     out = []
     for disp, sym in zip(display_options or [], symbol_options or []):
         d = str(disp) if disp is not None else ""
-        # Remove any existing rocket prefix
-        if d.startswith("🚀 "):
+        # Remove any existing status prefix (rocket/lemon), possibly repeated.
+        while d.startswith("🚀 ") or d.startswith("🍋 "):
             d = d[2:]
         s = _normalize_symbol(sym)
         if s and s in (passing_syms or set()):
             d = f"🚀 {d}"
+        else:
+            d = f"🍋 {d}"
         out.append(d)
     return out
 

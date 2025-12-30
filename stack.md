@@ -1,6 +1,22 @@
 # Portainer Stack (copy/paste)
 
-Paste this into **Portainer → Stacks → Add stack → Web editor**.
+Portainer has two ways to deploy this stack:
+
+## Recommended: Git repository (pulls from GitHub)
+
+Use these values in **Portainer → Stacks → Add stack → Git repository**:
+
+- Repository URL: `https://github.com/Mikerstrong/fast-lane.git`
+- Reference: `main`
+- Compose path: `docker-compose.yml`
+
+Then click **Deploy the stack**.
+
+## Web editor (YAML only)
+
+Docker Compose YAML cannot “pull from Git” by itself.
+
+Only use the Web editor if Portainer already has the project files available on the host (so it can build using `Dockerfile`).
 
 ```yaml
 services:
