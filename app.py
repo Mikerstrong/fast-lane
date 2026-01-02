@@ -1398,15 +1398,19 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         row_heights=[0.6, 0.2, 0.2]
     )
     
-    # Add stock price and Bollinger Bands to the first subplot
+    # Add stock price candlesticks to the first subplot
     fig.add_trace(
-        go.Scatter(
-            x=data.index, 
-            y=data['Close'], 
-            mode='lines', 
-            name='Close Price',
-            line=dict(color='#1f77b4', width=4),  # Thicker, more prominent blue
-            hovertemplate='<b>Date</b>: %{x}<br><b>Price</b>: $%{y:.2f}<extra></extra>'
+        go.Candlestick(
+            x=data.index,
+            open=data['Open'],
+            high=data['High'],
+            low=data['Low'],
+            close=data['Close'],
+            name='Candlesticks',
+            increasing_line_color='#00FF00',  # Green for up candles
+            decreasing_line_color='#FF0000',  # Red for down candles
+            increasing_fillcolor='#00FF00',
+            decreasing_fillcolor='#FF0000'
         ), 
         row=1, col=1
     )
