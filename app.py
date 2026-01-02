@@ -1394,8 +1394,11 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         subplot_titles=[f'{current_symbol} Stock Price with Bollinger Bands', 
                        'Detrended Price Oscillator (DPO) - 9 Days', 
                        'Detrended Price Oscillator (DPO) - 20 Days'],
-        vertical_spacing=0.08,
-        row_heights=[0.6, 0.2, 0.2]
+        vertical_spacing=0.12,  # Increased spacing to prevent overlap
+        row_heights=[0.6, 0.2, 0.2],
+        specs=[[{"secondary_y": False}],
+               [{"secondary_y": False}],
+               [{"secondary_y": False}]]
     )
     
     # Add stock price candlesticks to the first subplot
@@ -1608,7 +1611,7 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     fig.update_yaxes(title_text="DPO-20 Value", row=3, col=1)
     
     # Display the chart
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width="stretch")
     
     # Additional information
     st.subheader("📋 Technical Analysis Summary")
