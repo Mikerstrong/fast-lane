@@ -8,6 +8,7 @@ import datetime
 import time
 import json
 import os
+import re
 
 # Import web scraping functionality
 try:
@@ -458,8 +459,31 @@ st.title("📈 Stock Analysis with Bollinger Bands & DPO")
 # Sidebar for input
 st.sidebar.header("Stock Analysis Parameters")
 
-# Stock symbol input
-symbol = st.sidebar.text_input("Enter Stock Symbol (e.g., AAPL, TSLA, MSFT):", value="ASTS").upper()
+if 'symbol' not in st.session_state:
+    st.session_state['symbol'] = 'ASTS'
+
+# Keep a dedicated widget key for the text input so we can safely update
+# st.session_state['symbol'] elsewhere (e.g., from dropdown selections).
+if 'symbol_input' not in st.session_state:
+    st.session_state['symbol_input'] = st.session_state['symbol']
+
+# If something else (like the dropdown) changed the symbol, sync the textbox
+# on the *next* run, before the widget is instantiated.
+pending_symbol = st.session_state.pop('pending_symbol_input', None)
+if pending_symbol:
+    st.session_state['symbol'] = str(pending_symbol).strip().upper() or 'ASTS'
+    st.session_state['symbol_input'] = st.session_state['symbol']
+
+# Stock symbol input (manual override).
+st.sidebar.text_input(
+    "Enter Stock Symbol (e.g., AAPL, TSLA, MSFT):",
+    key='symbol_input',
+)
+
+# Canonicalize into the app's symbol state (NOT a widget key).
+symbol_from_input = (st.session_state.get('symbol_input') or 'ASTS').strip().upper()
+if symbol_from_input and symbol_from_input != st.session_state.get('symbol'):
+    st.session_state['symbol'] = symbol_from_input
 
 # Possible Stocks section
 st.sidebar.markdown("---")
@@ -576,9 +600,11 @@ selected_active = st.sidebar.selectbox(
 
 # Update symbol if dropdown selection is made
 if selected_active != "Select a stock..." and selected_active:
+    selected_symbol = None
+    
     if selected_active.startswith("❓ "):
         # Handle possible stock selection
-        symbol = selected_active.replace("❓ ", "").strip()
+        selected_symbol = selected_active.replace("❓ ", "").strip()
     elif selected_active.startswith("---"):
         # Skip category headers - they're not selectable
         pass
@@ -586,7 +612,25 @@ if selected_active != "Select a stock..." and selected_active:
         # Handle regular active stock selection using the mapping
         symbol_mapping = st.session_state.get('symbol_to_display', {})
         if selected_active in symbol_mapping:
-            symbol = symbol_mapping[selected_active]
+            selected_symbol = symbol_mapping[selected_active]
+
+        # Fallback: extract the ticker directly from the label.
+        # This prevents mapping mismatches (e.g., if label formatting changes).
+        if not selected_symbol:
+            m = re.search(r"\b([A-Z]{1,6})\b", str(selected_active))
+            if m:
+                selected_symbol = m.group(1)
+    
+    # If we successfully extracted a symbol, store it and rerun so the rest of the
+    # script uses the updated symbol (and the text input reflects it).
+    if selected_symbol and selected_symbol != st.session_state.get('symbol'):
+        st.session_state['symbol'] = selected_symbol
+        st.session_state['pending_symbol_input'] = selected_symbol
+        st.session_state['last_dropdown_selection'] = selected_active
+        st.rerun()
+
+# Use the unified symbol everywhere below (normalize)
+symbol = (st.session_state.get('symbol', 'ASTS') or 'ASTS').strip().upper()
 
 # Refresh button for active stocks
 if st.sidebar.button("🔄 Refresh Day Gainers & Active Stocks"):
@@ -1257,7 +1301,12 @@ def is_market_hours():
 
 # Search button or auto-search when dropdown selection changes
 with search_slot:
-    search_triggered = st.button("🔍 Search", type="primary") or (selected_active != "Select a stock..." and selected_active)
+    auto_trigger = (
+        bool(selected_active)
+        and selected_active != "Select a stock..."
+        and not str(selected_active).startswith("---")
+    )
+    search_triggered = st.button("🔍 Search", type="primary") or auto_trigger
 
 if search_triggered:
     if symbol:
