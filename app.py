@@ -235,7 +235,7 @@ def is_cache_valid(cache_entry, hours_valid=24):
         return False
 
 def get_most_active_stocks():
-    """Fetch top movers and most active stocks"""
+    """Fetch day gainers and most active stocks from Yahoo Finance"""
     try:
         # Always include portfolio symbols in the dropdown.
         portfolio_symbols = []
@@ -252,61 +252,142 @@ def get_most_active_stocks():
         except Exception:
             portfolio_symbols = []
 
-        # Get top gainers, losers, and most active from Yahoo Finance
-        # Using popular tickers as a fallback since Yahoo Finance screening can be inconsistent
-        popular_tickers = [
-            'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 
-            'SPY', 'QQQ', 'AMD', 'CRM', 'ORCL', 'INTC', 'IBM', 'BABA',
-            'UBER', 'LYFT', 'SNAP', 'ROKU', 'ZM', 'PLTR', 'COIN',
-            'GME', 'AMC', 'BB', 'NOK', 'SNDL', 'DOGE-USD', 'BTC-USD'
-        ]
+        # Get day gainers and most active stocks from Yahoo Finance
+        day_gainers = []
+        most_active = []
         
-        # Get current data for these stocks to find actual movers
-        active_stocks = []
-        
-        for ticker in popular_tickers[:20]:  # Limit to avoid API rate limits
-            try:
-                stock = yf.Ticker(ticker)
-                info = stock.history(period="2d")  # Get last 2 days
-                if len(info) >= 2:
-                    current_price = info['Close'].iloc[-1]
-                    prev_price = info['Close'].iloc[-2]
-                    change_pct = ((current_price - prev_price) / prev_price) * 100
-                    
-                    active_stocks.append({
-                        'symbol': ticker,
-                        'name': ticker,  # We can enhance this with company names later
-                        'change_pct': change_pct,
-                        'current_price': current_price
+        try:
+            # Get day gainers (top gainers for the day)
+            gainers_data = yf.get_day_gainers()
+            if gainers_data is not None and not gainers_data.empty:
+                for _, row in gainers_data.head(10).iterrows():  # Top 10 gainers
+                    day_gainers.append({
+                        'symbol': row['Symbol'],
+                        'name': row.get('Name', row['Symbol']),
+                        'change_pct': row.get('% Change', 0),
+                        'current_price': row.get('Price (Intraday)', 0),
+                        'category': 'gainer'
                     })
-            except:
-                continue
+        except Exception as e:
+            print(f"Error fetching day gainers: {e}")
         
-        # Sort by absolute percentage change to get most active
-        active_stocks = sorted(active_stocks, key=lambda x: abs(x['change_pct']), reverse=True)
+        try:
+            # Get most active stocks (by volume)
+            active_data = yf.get_day_most_active()
+            if active_data is not None and not active_data.empty:
+                for _, row in active_data.head(10).iterrows():  # Top 10 most active
+                    most_active.append({
+                        'symbol': row['Symbol'],
+                        'name': row.get('Name', row['Symbol']),
+                        'change_pct': row.get('% Change', 0),
+                        'current_price': row.get('Price (Intraday)', 0),
+                        'volume': row.get('Volume', 0),
+                        'category': 'active'
+                    })
+        except Exception as e:
+            print(f"Error fetching most active stocks: {e}")
         
-        # Format for dropdown
+        # Combine and deduplicate by symbol
+        all_stocks = []
+        seen_symbols = set()
+        
+        # Add day gainers first
+        for stock in day_gainers:
+            if stock['symbol'] not in seen_symbols:
+                all_stocks.append(stock)
+                seen_symbols.add(stock['symbol'])
+        
+        # Add most active stocks (skip if already added)
+        for stock in most_active:
+            if stock['symbol'] not in seen_symbols:
+                all_stocks.append(stock)
+                seen_symbols.add(stock['symbol'])
+        
+        # If we don't have enough stocks, fall back to popular tickers
+        if len(all_stocks) < 10:
+            popular_tickers = [
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 
+                'SPY', 'QQQ', 'AMD', 'CRM', 'ORCL', 'INTC', 'IBM', 'BABA',
+                'UBER', 'LYFT', 'SNAP', 'ROKU', 'ZM', 'PLTR', 'COIN',
+                'GME', 'AMC', 'BB', 'NOK', 'SNDL'
+            ]
+            
+            for ticker in popular_tickers:
+                if ticker not in seen_symbols and len(all_stocks) < 20:
+                    try:
+                        stock = yf.Ticker(ticker)
+                        info = stock.history(period="2d")
+                        if len(info) >= 2:
+                            current_price = info['Close'].iloc[-1]
+                            prev_price = info['Close'].iloc[-2]
+                            change_pct = ((current_price - prev_price) / prev_price) * 100
+                            
+                            all_stocks.append({
+                                'symbol': ticker,
+                                'name': ticker,
+                                'change_pct': change_pct,
+                                'current_price': current_price,
+                                'category': 'popular'
+                            })
+                            seen_symbols.add(ticker)
+                    except:
+                        continue
+        
+        # Format for dropdown with categories
         dropdown_options = []
+        symbols_out = []
+        symbol_to_display = {}  # Map display text to symbol for easy lookup
 
         # Portfolio symbols first (no extra API calls)
         for sym in portfolio_symbols:
-            dropdown_options.append(f"⭐ {sym} (Portfolio)")
-        for stock in active_stocks:
-            change_symbol = "📈" if stock['change_pct'] > 0 else "📉"
-            dropdown_options.append(
-                f"{change_symbol} {stock['symbol']} ({stock['change_pct']:+.2f}%)"
-            )
+            display_text = f"⭐ {sym} (Portfolio)"
+            dropdown_options.append(display_text)
+            symbols_out.append(sym)
+            symbol_to_display[display_text] = sym
+        
+        # Day gainers section
+        gainers_count = sum(1 for stock in all_stocks if stock['category'] == 'gainer')
+        if gainers_count > 0:
+            dropdown_options.append("--- 📈 Day Gainers ---")
+        
+        for stock in all_stocks:
+            if stock['category'] == 'gainer':
+                display_text = f"📈 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                dropdown_options.append(display_text)
+                symbols_out.append(stock['symbol'])
+                symbol_to_display[display_text] = stock['symbol']
+        
+        # Most active section
+        active_count = sum(1 for stock in all_stocks if stock['category'] == 'active')
+        if active_count > 0:
+            dropdown_options.append("--- 🔥 Most Active ---")
+        
+        for stock in all_stocks:
+            if stock['category'] == 'active':
+                change_symbol = "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] < 0 else "➖"
+                display_text = f"🔥 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                dropdown_options.append(display_text)
+                symbols_out.append(stock['symbol'])
+                symbol_to_display[display_text] = stock['symbol']
+        
+        # Popular stocks section (if any)
+        popular_count = sum(1 for stock in all_stocks if stock['category'] == 'popular')
+        if popular_count > 0:
+            dropdown_options.append("--- 🌟 Popular Stocks ---")
+        
+        for stock in all_stocks:
+            if stock['category'] == 'popular':
+                change_symbol = "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] < 0 else "➖"
+                display_text = f"{change_symbol} {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                dropdown_options.append(display_text)
+                symbols_out.append(stock['symbol'])
+                symbol_to_display[display_text] = stock['symbol']
 
-        # Build symbol list aligned with dropdown options
-        symbols_out = []
-        symbols_out.extend(portfolio_symbols)
-        symbols_out.extend([stock['symbol'] for stock in active_stocks])
-        # Deduplicate while preserving order
-        seen = set()
-        symbols_out = [s for s in symbols_out if not (s in seen or seen.add(s))]
+        # Store the mapping for later use
+        st.session_state['symbol_to_display'] = symbol_to_display
 
-        # Keep the dropdown compact
-        limit = 20
+        # Keep the dropdown reasonable
+        limit = 40  # Increased limit to accommodate categories
         return dropdown_options[:limit], symbols_out[:limit]
     
     except Exception as e:
@@ -452,7 +533,7 @@ if st.session_state.get("possible_stocks"):
         dropdown_symbols.append(possible_stock)
 
 selected_active = st.sidebar.selectbox(
-    "Top Movers & Active Stocks",
+    "Day Gainers & Most Active Stocks",
     options=["Select a stock..."] + dropdown_options,
     key="active_stock_dropdown"
 )
@@ -462,15 +543,19 @@ if selected_active != "Select a stock..." and selected_active:
     if selected_active.startswith("❓ "):
         # Handle possible stock selection
         symbol = selected_active.replace("❓ ", "").strip()
+    elif selected_active.startswith("---"):
+        # Skip category headers - they're not selectable
+        pass
     else:
-        # Handle regular active stock selection
-        selected_index = st.session_state['active_stocks_display'].index(selected_active)
-        symbol = st.session_state['active_stocks_symbols'][selected_index]
+        # Handle regular active stock selection using the mapping
+        symbol_mapping = st.session_state.get('symbol_to_display', {})
+        if selected_active in symbol_mapping:
+            symbol = symbol_mapping[selected_active]
 
 # Refresh button for active stocks
-if st.sidebar.button("🔄 Refresh Active Stocks"):
+if st.sidebar.button("🔄 Refresh Day Gainers & Active Stocks"):
     with st.sidebar:
-        with st.spinner("Refreshing most active stocks..."):
+        with st.spinner("Refreshing day gainers and most active stocks..."):
             display_options, symbol_options = get_most_active_stocks()
             st.session_state['active_stocks_display'] = display_options
             st.session_state['active_stocks_symbols'] = symbol_options
