@@ -9,6 +9,14 @@ import time
 import json
 import os
 
+# Import web scraping functionality
+try:
+    from web_scrapers import StockDataAggregator
+    WEB_SCRAPING_AVAILABLE = True
+except ImportError:
+    WEB_SCRAPING_AVAILABLE = False
+    print("Web scraping not available - install requests and beautifulsoup4")
+
 # Import analysis functions
 from analysis import (
     calculate_bollinger_bands, 
@@ -235,7 +243,7 @@ def is_cache_valid(cache_entry, hours_valid=24):
         return False
 
 def get_most_active_stocks():
-    """Fetch day gainers and most active stocks from Yahoo Finance"""
+    """Fetch day gainers and most active stocks from multiple sources"""
     try:
         # Always include portfolio symbols in the dropdown.
         portfolio_symbols = []
@@ -252,58 +260,97 @@ def get_most_active_stocks():
         except Exception:
             portfolio_symbols = []
 
-        # Get day gainers and most active stocks from Yahoo Finance
+        # Get source preference from session state (default to web scraping)
+        source_preference = st.session_state.get('stock_data_source', 'web_scraping')
+        
+        all_stocks = []
+        dropdown_options = []
+        symbols_out = []
+        symbol_to_display = {}
+
+        # Portfolio symbols first
+        for sym in portfolio_symbols:
+            display_text = f"⭐ {sym} (Portfolio)"
+            dropdown_options.append(display_text)
+            symbols_out.append(sym)
+            symbol_to_display[display_text] = sym
+
+        if source_preference == 'web_scraping' and WEB_SCRAPING_AVAILABLE:
+            # Use web scraping as primary source (NEW STREAMLINED VERSION)
+            try:
+                print("Using streamlined web scraping for stock data...")
+                aggregator = StockDataAggregator()
+                
+                # Get all 25 stocks from both gainers and most active
+                web_dropdown, web_symbols, web_mapping = aggregator.get_formatted_dropdown_data('both')
+                
+                dropdown_options.extend(web_dropdown)
+                symbols_out.extend(web_symbols)
+                symbol_to_display.update(web_mapping)
+                
+                if len(web_symbols) > 0:
+                    st.session_state['symbol_to_display'] = symbol_to_display
+                    print(f"Web scraping successful: {len(web_symbols)} stocks found")
+                    return dropdown_options, symbols_out
+                else:
+                    print("Web scraping returned no results, falling back to Yahoo Finance...")
+                    
+            except Exception as e:
+                print(f"Web scraping failed: {e}, falling back to Yahoo Finance...")
+        
+        # Fallback to Yahoo Finance API (original implementation)
         day_gainers = []
         most_active = []
         
-        try:
-            # Get day gainers (top gainers for the day)
-            gainers_data = yf.get_day_gainers()
-            if gainers_data is not None and not gainers_data.empty:
-                for _, row in gainers_data.head(10).iterrows():  # Top 10 gainers
-                    day_gainers.append({
-                        'symbol': row['Symbol'],
-                        'name': row.get('Name', row['Symbol']),
-                        'change_pct': row.get('% Change', 0),
-                        'current_price': row.get('Price (Intraday)', 0),
-                        'category': 'gainer'
-                    })
-        except Exception as e:
-            print(f"Error fetching day gainers: {e}")
-        
-        try:
-            # Get most active stocks (by volume)
-            active_data = yf.get_day_most_active()
-            if active_data is not None and not active_data.empty:
-                for _, row in active_data.head(10).iterrows():  # Top 10 most active
-                    most_active.append({
-                        'symbol': row['Symbol'],
-                        'name': row.get('Name', row['Symbol']),
-                        'change_pct': row.get('% Change', 0),
-                        'current_price': row.get('Price (Intraday)', 0),
-                        'volume': row.get('Volume', 0),
-                        'category': 'active'
-                    })
-        except Exception as e:
-            print(f"Error fetching most active stocks: {e}")
-        
-        # Combine and deduplicate by symbol
-        all_stocks = []
-        seen_symbols = set()
-        
-        # Add day gainers first
-        for stock in day_gainers:
-            if stock['symbol'] not in seen_symbols:
-                all_stocks.append(stock)
-                seen_symbols.add(stock['symbol'])
-        
-        # Add most active stocks (skip if already added)
-        for stock in most_active:
-            if stock['symbol'] not in seen_symbols:
-                all_stocks.append(stock)
-                seen_symbols.add(stock['symbol'])
-        
-        # If we don't have enough stocks, fall back to popular tickers
+        if source_preference == 'yahoo_finance' or len(dropdown_options) <= len(portfolio_symbols):
+            try:
+                print("Using Yahoo Finance API...")
+                # Get day gainers (top gainers for the day)
+                gainers_data = yf.get_day_gainers()
+                if gainers_data is not None and not gainers_data.empty:
+                    for _, row in gainers_data.head(10).iterrows():
+                        day_gainers.append({
+                            'symbol': row['Symbol'],
+                            'name': row.get('Name', row['Symbol']),
+                            'change_pct': row.get('% Change', 0),
+                            'current_price': row.get('Price (Intraday)', 0),
+                            'category': 'gainer'
+                        })
+            except Exception as e:
+                print(f"Error fetching day gainers: {e}")
+            
+            try:
+                # Get most active stocks (by volume)
+                active_data = yf.get_day_most_active()
+                if active_data is not None and not active_data.empty:
+                    for _, row in active_data.head(10).iterrows():
+                        most_active.append({
+                            'symbol': row['Symbol'],
+                            'name': row.get('Name', row['Symbol']),
+                            'change_pct': row.get('% Change', 0),
+                            'current_price': row.get('Price (Intraday)', 0),
+                            'volume': row.get('Volume', 0),
+                            'category': 'active'
+                        })
+            except Exception as e:
+                print(f"Error fetching most active stocks: {e}")
+            
+            # Combine and deduplicate by symbol
+            seen_symbols = set(portfolio_symbols)
+            
+            # Add day gainers first
+            for stock in day_gainers:
+                if stock['symbol'] not in seen_symbols:
+                    all_stocks.append(stock)
+                    seen_symbols.add(stock['symbol'])
+            
+            # Add most active stocks (skip if already added)
+            for stock in most_active:
+                if stock['symbol'] not in seen_symbols:
+                    all_stocks.append(stock)
+                    seen_symbols.add(stock['symbol'])
+
+        # If still no data, fall back to popular tickers
         if len(all_stocks) < 10:
             popular_tickers = [
                 'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'NVDA', 'META', 'NFLX', 
@@ -332,62 +379,51 @@ def get_most_active_stocks():
                             seen_symbols.add(ticker)
                     except:
                         continue
-        
-        # Format for dropdown with categories
-        dropdown_options = []
-        symbols_out = []
-        symbol_to_display = {}  # Map display text to symbol for easy lookup
 
-        # Portfolio symbols first (no extra API calls)
-        for sym in portfolio_symbols:
-            display_text = f"⭐ {sym} (Portfolio)"
-            dropdown_options.append(display_text)
-            symbols_out.append(sym)
-            symbol_to_display[display_text] = sym
-        
-        # Day gainers section
-        gainers_count = sum(1 for stock in all_stocks if stock['category'] == 'gainer')
-        if gainers_count > 0:
-            dropdown_options.append("--- 📈 Day Gainers ---")
-        
-        for stock in all_stocks:
-            if stock['category'] == 'gainer':
-                display_text = f"📈 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
-                dropdown_options.append(display_text)
-                symbols_out.append(stock['symbol'])
-                symbol_to_display[display_text] = stock['symbol']
-        
-        # Most active section
-        active_count = sum(1 for stock in all_stocks if stock['category'] == 'active')
-        if active_count > 0:
-            dropdown_options.append("--- 🔥 Most Active ---")
-        
-        for stock in all_stocks:
-            if stock['category'] == 'active':
-                change_symbol = "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] < 0 else "➖"
-                display_text = f"🔥 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
-                dropdown_options.append(display_text)
-                symbols_out.append(stock['symbol'])
-                symbol_to_display[display_text] = stock['symbol']
-        
-        # Popular stocks section (if any)
-        popular_count = sum(1 for stock in all_stocks if stock['category'] == 'popular')
-        if popular_count > 0:
-            dropdown_options.append("--- 🌟 Popular Stocks ---")
-        
-        for stock in all_stocks:
-            if stock['category'] == 'popular':
-                change_symbol = "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] < 0 else "➖"
-                display_text = f"{change_symbol} {stock['symbol']} ({stock['change_pct']:+.2f}%)"
-                dropdown_options.append(display_text)
-                symbols_out.append(stock['symbol'])
-                symbol_to_display[display_text] = stock['symbol']
+        # Format for dropdown with categories (Yahoo Finance data)
+        if all_stocks:
+            # Day gainers section
+            gainers_count = sum(1 for stock in all_stocks if stock['category'] == 'gainer')
+            if gainers_count > 0:
+                dropdown_options.append("--- 📈 Day Gainers ---")
+            
+            for stock in all_stocks:
+                if stock['category'] == 'gainer':
+                    display_text = f"📈 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                    dropdown_options.append(display_text)
+                    symbols_out.append(stock['symbol'])
+                    symbol_to_display[display_text] = stock['symbol']
+            
+            # Most active section
+            active_count = sum(1 for stock in all_stocks if stock['category'] == 'active')
+            if active_count > 0:
+                dropdown_options.append("--- 🔥 Most Active ---")
+            
+            for stock in all_stocks:
+                if stock['category'] == 'active':
+                    display_text = f"🔥 {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                    dropdown_options.append(display_text)
+                    symbols_out.append(stock['symbol'])
+                    symbol_to_display[display_text] = stock['symbol']
+            
+            # Popular stocks section (if any)
+            popular_count = sum(1 for stock in all_stocks if stock['category'] == 'popular')
+            if popular_count > 0:
+                dropdown_options.append("--- 🌟 Popular Stocks ---")
+            
+            for stock in all_stocks:
+                if stock['category'] == 'popular':
+                    change_symbol = "📈" if stock['change_pct'] > 0 else "📉" if stock['change_pct'] < 0 else "➖"
+                    display_text = f"{change_symbol} {stock['symbol']} ({stock['change_pct']:+.2f}%)"
+                    dropdown_options.append(display_text)
+                    symbols_out.append(stock['symbol'])
+                    symbol_to_display[display_text] = stock['symbol']
 
         # Store the mapping for later use
         st.session_state['symbol_to_display'] = symbol_to_display
 
         # Keep the dropdown reasonable
-        limit = 40  # Increased limit to accommodate categories
+        limit = 40
         return dropdown_options[:limit], symbols_out[:limit]
     
     except Exception as e:
@@ -560,6 +596,29 @@ if st.sidebar.button("🔄 Refresh Day Gainers & Active Stocks"):
             st.session_state['active_stocks_display'] = display_options
             st.session_state['active_stocks_symbols'] = symbol_options
             st.rerun()
+
+# Data source selection
+st.sidebar.markdown("---")
+st.sidebar.markdown("**📊 Data Source Settings**")
+
+# Choose between web scraping and Yahoo Finance
+data_source = st.sidebar.radio(
+    "Stock Data Source",
+    ["🌐 Web Scraping (Primary)", "📈 Yahoo Finance API"],
+    key="data_source_radio",
+    help="Web scraping gets fresh data from Yahoo Finance Markets + CNBC. Yahoo Finance uses API."
+)
+
+if data_source == "🌐 Web Scraping (Primary)":
+    st.session_state['stock_data_source'] = 'web_scraping'
+    
+    st.sidebar.info("📊 **Active Sources:**\n- Yahoo Finance Markets (25 gainers + 25 most active)\n- CNBC (backup)\n- Fallback data (if needed)")
+    
+    if not WEB_SCRAPING_AVAILABLE:
+        st.sidebar.warning("⚠️ Web scraping not available. Install: pip install requests beautifulsoup4")
+        st.session_state['stock_data_source'] = 'yahoo_finance'
+else:
+    st.session_state['stock_data_source'] = 'yahoo_finance'
 
 # Reserve a spot for the Search button directly below Refresh Active Stocks.
 # We'll render into this container later (after helper functions are defined),
