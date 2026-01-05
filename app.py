@@ -23,6 +23,7 @@ from analysis import (
     calculate_bollinger_bands, 
     calculate_dpo_9, 
     calculate_dpo_20,
+    calculate_rsi,
     analyze_fast_lane_stock,
     bulk_analyze_stocks_with_live_updates,
     bulk_analyze_stocks,
@@ -621,12 +622,12 @@ if selected_active != "Select a stock..." and selected_active:
             if m:
                 selected_symbol = m.group(1)
     
-    # If we successfully extracted a symbol, store it and rerun so the rest of the
-    # script uses the updated symbol (and the text input reflects it).
+    # If we successfully extracted a symbol, store it and mark for auto-search
     if selected_symbol and selected_symbol != st.session_state.get('symbol'):
         st.session_state['symbol'] = selected_symbol
         st.session_state['pending_symbol_input'] = selected_symbol
         st.session_state['last_dropdown_selection'] = selected_active
+        st.session_state['trigger_search_from_dropdown'] = True
         st.rerun()
 
 # Use the unified symbol everywhere below (normalize)
@@ -1230,6 +1231,7 @@ def fetch_stock_data(symbol, update_cache=True):
         historical_data = calculate_bollinger_bands(historical_data)
         historical_data = calculate_dpo_9(historical_data)
         historical_data = calculate_dpo_20(historical_data)
+        historical_data = calculate_rsi(historical_data, period=14)
         
         # Add legacy DPO column for backward compatibility
         historical_data['DPO'] = historical_data['DPO_20']
@@ -1301,11 +1303,15 @@ def is_market_hours():
 
 # Search button or auto-search when dropdown selection changes
 with search_slot:
+    # Check if dropdown was just used (flag set during dropdown processing above)
+    dropdown_triggered = st.session_state.pop('trigger_search_from_dropdown', False)
+    
     auto_trigger = (
         bool(selected_active)
         and selected_active != "Select a stock..."
         and not str(selected_active).startswith("---")
-    )
+    ) or dropdown_triggered
+    
     search_triggered = st.button("🔍 Search", type="primary") or auto_trigger
 
 if search_triggered:
@@ -1584,17 +1590,29 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         st.subheader("📊 Bollinger Bands (3 Standard Deviation)")
         st.metric("Upper Band (+3σ)", f"${latest_data['BB_Upper_3']:.2f}")
         st.metric("Lower Band (-3σ)", f"${latest_data['BB_Lower_3']:.2f}")
-    
-    # Create synchronized subplots with three rows
+
+    latest_rsi = float(latest_data.get('RSI_14', np.nan))
+    if np.isnan(latest_rsi):
+        rsi_status = "N/A"
+    elif latest_rsi >= 70:
+        rsi_status = f"Overbought ({latest_rsi:.1f})"
+    elif latest_rsi <= 30:
+        rsi_status = f"Oversold ({latest_rsi:.1f})"
+    else:
+        rsi_status = f"OK ({latest_rsi:.1f})"
+
+    # Create synchronized subplots with four rows
     fig = make_subplots(
-        rows=3, cols=1,
+        rows=4, cols=1,
         shared_xaxes=True,
         subplot_titles=[f'{current_symbol} Stock Price with Bollinger Bands', 
                        'Detrended Price Oscillator (DPO) - 9 Days', 
-                       'Detrended Price Oscillator (DPO) - 20 Days'],
+                       'Detrended Price Oscillator (DPO) - 20 Days',
+                       f'RSI (14) — {rsi_status}'],
         vertical_spacing=0.12,  # Increased spacing to prevent overlap
-        row_heights=[0.6, 0.2, 0.2],
+        row_heights=[0.55, 0.18, 0.18, 0.09],
         specs=[[{"secondary_y": False}],
+               [{"secondary_y": False}],
                [{"secondary_y": False}],
                [{"secondary_y": False}]]
     )
@@ -1818,22 +1836,40 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     
     # Add zero line for 20-day DPO
     fig.add_hline(y=0, line_dash="dash", line_color="gray", row=3, col=1)
+
+    # Add RSI to the fourth subplot
+    if 'RSI_14' in data.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=data.index,
+                y=data['RSI_14'],
+                mode='lines',
+                name='RSI (14)',
+                line=dict(color='#1f77b4', width=2),
+                hovertemplate='<b>Date</b>: %{x}<br><b>RSI (14)</b>: %{y:.1f}<extra></extra>'
+            ),
+            row=4, col=1
+        )
+        fig.add_hline(y=70, line_dash="dash", line_color="gray", row=4, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="gray", row=4, col=1)
     
     # Update layout
     fig.update_layout(
         title=f'{current_symbol} Enhanced Technical Analysis (9-day & 20-day DPO)',
-        height=900,  # Increased height for three subplots
+        height=980,  # Increased height for four subplots
         showlegend=True,
-        hovermode='x unified'
+        hovermode='x unified',
+        xaxis_rangeslider_visible=False,
     )
     
     # Update x-axis
-    fig.update_xaxes(title_text="Date", row=3, col=1)
+    fig.update_xaxes(title_text="Date", row=4, col=1)
     
     # Update y-axes
     fig.update_yaxes(title_text="Price ($)", row=1, col=1)
     fig.update_yaxes(title_text="DPO-9 Value", row=2, col=1)
     fig.update_yaxes(title_text="DPO-20 Value", row=3, col=1)
+    fig.update_yaxes(title_text="RSI (14)", row=4, col=1, range=[0, 100])
     
     # Display the chart
     st.plotly_chart(fig, width="stretch")

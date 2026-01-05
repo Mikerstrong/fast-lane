@@ -208,6 +208,38 @@ def calculate_dpo_20(df):
     """Calculate 20-day Detrended Price Oscillator (DPO)"""
     return calculate_dpo(df, period=20)
 
+
+def calculate_rsi(df, period: int = 14, price_col: str = "Close"):
+    """Calculate Relative Strength Index (RSI).
+
+    Uses Wilder's smoothing via EMA (adjust=False).
+    Adds a column named f"RSI_{period}".
+    """
+    if df is None or df.empty or price_col not in df.columns:
+        return df
+
+    delta = df[price_col].diff()
+    gain = delta.clip(lower=0)
+    loss = (-delta).clip(lower=0)
+
+    alpha = 1 / float(period)
+    avg_gain = gain.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    rsi = 100 - (100 / (1 + rs))
+
+    # If avg_loss is 0, RSI should be 100; if avg_gain is 0, RSI should be 0.
+    # Use pd.Series to avoid "value parameter must be scalar" error
+    rsi_filled = rsi.copy()
+    mask_gain_only = (avg_loss == 0) & (avg_gain > 0)
+    mask_loss_only = (avg_gain == 0) & (avg_loss > 0)
+    rsi_filled[mask_gain_only] = 100.0
+    rsi_filled[mask_loss_only] = 0.0
+
+    df[f"RSI_{period}"] = rsi_filled
+    return df
+
 def load_cache():
     """Load analysis cache from JSON file"""
     try:
