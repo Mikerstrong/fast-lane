@@ -1365,7 +1365,7 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     st.markdown("---")
     
     # Display current values
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     with col1:
         st.subheader("📊 Bollinger Bands (1 Standard Deviation)")
@@ -1382,9 +1382,14 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         st.metric("Lower Band (-1σ)", f"${latest_data['BB_Lower_1']:.2f}")
     
     with col2:
+        st.subheader("📊 Bollinger Bands (2 Standard Deviation)")
+        st.metric("Upper Band (+2σ)", f"${latest_data['BB_Upper_2']:.2f}")
+        st.metric("Real-Time Price", f"${real_time_price:.2f}")  # Use real-time price
+        st.metric("Lower Band (-2σ)", f"${latest_data['BB_Lower_2']:.2f}")
+    
+    with col3:
         st.subheader("📊 Bollinger Bands (3 Standard Deviation)")
         st.metric("Upper Band (+3σ)", f"${latest_data['BB_Upper_3']:.2f}")
-        st.metric("Real-Time Price", f"${real_time_price:.2f}")  # Use real-time price
         st.metric("Lower Band (-3σ)", f"${latest_data['BB_Lower_3']:.2f}")
     
     # Create synchronized subplots with three rows
@@ -1434,7 +1439,8 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     # Add Bollinger Bands with shading from Upper 1σ to Upper 3σ
     # Order matters for Plotly 'fill=tonexty':
     # - BB_Upper_3 (no fill)
-    # - BB_Upper_1 (fills to BB_Upper_3 => shades between upper bands)
+    # - BB_Upper_2 (fills to BB_Upper_3 => shades between upper 2σ and 3σ bands)
+    # - BB_Upper_1 (fills to BB_Upper_2 => shades between upper 1σ and 2σ bands)
     # - BB_Lower_1 (no fill to upper bands)
     fig.add_trace(
         go.Scatter(
@@ -1451,12 +1457,26 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     fig.add_trace(
         go.Scatter(
             x=data.index,
+            y=data['BB_Upper_2'],
+            mode='lines',
+            name='BB Upper (2σ)',
+            line=dict(color='#FF8C00', width=3),  # Dark orange
+            fill='tonexty',
+            fillcolor='rgba(255,140,0,0.08)',  # Light shading between +2σ and +3σ
+            hovertemplate='<b>Date</b>: %{x}<br><b>Upper BB (2σ)</b>: $%{y:.2f}<extra></extra>',
+        ),
+        row=1, col=1,
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=data.index,
             y=data['BB_Upper_1'],
             mode='lines',
             name='BB Upper (1σ)',
             line=dict(color='#FFFF00', width=4),  # Bright yellow
             fill='tonexty',
-            fillcolor='rgba(255,255,0,0.10)',  # Light shading between +1σ and +3σ
+            fillcolor='rgba(255,255,0,0.10)',  # Light shading between +1σ and +2σ
             hovertemplate='<b>Date</b>: %{x}<br><b>Upper BB (1σ)</b>: $%{y:.2f}<extra></extra>',
         ),
         row=1, col=1,
@@ -1470,6 +1490,18 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
             name='BB Lower (1σ)',
             line=dict(color='#FFA500', width=3),  # Bright orange
             hovertemplate='<b>Date</b>: %{x}<br><b>Lower BB (1σ)</b>: $%{y:.2f}<extra></extra>'
+        ), 
+        row=1, col=1
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=data.index, 
+            y=data['BB_Lower_2'], 
+            mode='lines', 
+            name='BB Lower (2σ)',
+            line=dict(color='#FF8C00', width=3),  # Dark orange
+            hovertemplate='<b>Date</b>: %{x}<br><b>Lower BB (2σ)</b>: $%{y:.2f}<extra></extra>'
         ), 
         row=1, col=1
     )
@@ -1615,7 +1647,7 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     
     # Additional information
     st.subheader("📋 Technical Analysis Summary")
-    col1, col2, col3 = st.columns(3)
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.write("**Bollinger Band Position (1σ):**")
@@ -1624,12 +1656,18 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
         st.write(f"Position: {bb_position_1:.1f}% (0% = Lower Band, 100% = Upper Band)")
     
     with col2:
+        st.write("**Bollinger Band Position (2σ):**")
+        bb_position_2 = ((real_time_price - latest_data['BB_Lower_2']) / 
+                         (latest_data['BB_Upper_2'] - latest_data['BB_Lower_2'])) * 100
+        st.write(f"Position: {bb_position_2:.1f}% (0% = Lower Band, 100% = Upper Band)")
+    
+    with col3:
         st.write("**Bollinger Band Position (3σ):**")
         bb_position_3 = ((real_time_price - latest_data['BB_Lower_3']) / 
                          (latest_data['BB_Upper_3'] - latest_data['BB_Lower_3'])) * 100
         st.write(f"Position: {bb_position_3:.1f}% (0% = Lower Band, 100% = Upper Band)")
     
-    with col3:
+    with col4:
         st.write("**Latest DPO Values:**")
         st.write(f"9-day DPO: {latest_data['DPO_9']:.2f}")
         st.write(f"20-day DPO: {latest_data['DPO_20']:.2f}")
@@ -1641,7 +1679,7 @@ if 'stock_data' in st.session_state and st.session_state['stock_data'] is not No
     # Data table (optional)
     if st.checkbox("Show Raw Data"):
         st.subheader("📊 Data Table")
-        display_columns = ['Close', 'MA_20', 'BB_Upper_1', 'BB_Lower_1', 'BB_Upper_3', 'BB_Lower_3', 'DPO_9', 'DPO_20']
+        display_columns = ['Close', 'MA_20', 'BB_Upper_1', 'BB_Lower_1', 'BB_Upper_2', 'BB_Lower_2', 'BB_Upper_3', 'BB_Lower_3', 'DPO_9', 'DPO_20']
         st.dataframe(data[display_columns].tail(20))
 
 else:

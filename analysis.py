@@ -172,7 +172,7 @@ def debug_log(event: str, **data) -> None:
         return
 
 def calculate_bollinger_bands(df, window=20):
-    """Calculate Bollinger Bands with 1 and 3 standard deviations"""
+    """Calculate Bollinger Bands with 1, 2, and 3 standard deviations"""
     # Calculate moving average
     df['MA_20'] = df['Close'].rolling(window=window).mean()
     
@@ -182,6 +182,10 @@ def calculate_bollinger_bands(df, window=20):
     # Calculate Bollinger Bands for 1 std dev
     df['BB_Upper_1'] = df['MA_20'] + (df['STD_20'] * 1)
     df['BB_Lower_1'] = df['MA_20'] - (df['STD_20'] * 1)
+    
+    # Calculate Bollinger Bands for 2 std dev
+    df['BB_Upper_2'] = df['MA_20'] + (df['STD_20'] * 2)
+    df['BB_Lower_2'] = df['MA_20'] - (df['STD_20'] * 2)
     
     # Calculate Bollinger Bands for 3 std dev
     df['BB_Upper_3'] = df['MA_20'] + (df['STD_20'] * 3)
